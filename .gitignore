@@ -1,0 +1,7 @@
+/target
+/out
+/src/sign-server/target
+*.eif
+*.pcrs
+enclave.log
+.env

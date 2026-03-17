@@ -1,0 +1,12 @@
+[workspace]
+members = [
+  "src/aws",
+  "src/init",
+  "src/system"
+]
+
+exclude = [
+  "src/sign-server"
+]
+
+resolver = "2"

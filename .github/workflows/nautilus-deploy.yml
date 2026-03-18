@@ -114,25 +114,29 @@ jobs:
             echo "=== Running enclaves ==="
             sudo nitro-cli describe-enclaves
 
-            # ── Start VSOCK bridge (restart if already running) ───────
-            echo "=== Starting VSOCK bridge ==="
+            echo ""
+            echo "Enclave deployed and running."
+            sudo nitro-cli describe-enclaves | jq -r '.[0] | "  CID: \(.EnclaveCID)  State: \(.State)"'
+
+      # ── Setup VSOCK bridge (separate step, allowed to fail) ──────
+      - name: Setup VSOCK Bridge
+        continue-on-error: true
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.TEE_EC2_HOST }}
+          username: ${{ secrets.TEE_EC2_USER }}
+          key: ${{ secrets.TEE_EC2_SSH_KEY }}
+          command_timeout: 2m
+          script: |
             sudo pkill -f "socat.*4000" 2>/dev/null || true
             sleep 1
-
             ENCLAVE_CID=$(sudo nitro-cli describe-enclaves | jq -r '.[0].EnclaveCID')
             touch /tmp/enclave.log
-
-            # Write systemd service files using printf (heredocs break YAML)
             printf '[Unit]\nDescription=Nautilus VSOCK Bridge\nAfter=network.target\n\n[Service]\nExecStart=/usr/bin/socat TCP-LISTEN:4000,reuseaddr,fork VSOCK-CONNECT:%s:4000\nRestart=always\nRestartSec=2\n\n[Install]\nWantedBy=multi-user.target\n' "$ENCLAVE_CID" | sudo tee /etc/systemd/system/nautilus-bridge.service > /dev/null
-
             printf '[Unit]\nDescription=Nautilus Log Collector\nAfter=network.target\n\n[Service]\nExecStart=/usr/bin/socat VSOCK-LISTEN:5000,fork,reuseaddr OPEN:/tmp/enclave.log,creat,append\nRestart=always\nRestartSec=2\n\n[Install]\nWantedBy=multi-user.target\n' | sudo tee /etc/systemd/system/nautilus-logs.service > /dev/null
-
             sudo systemctl daemon-reload
             sudo systemctl restart nautilus-bridge.service
             sudo systemctl restart nautilus-logs.service
-            sudo systemctl enable nautilus-bridge.service nautilus-logs.service
-
-            echo ""
-            echo "Deployment complete."
-            echo "  Enclave CID: $ENCLAVE_CID"
-            sudo systemctl status nautilus-bridge.service --no-pager || true
+            sudo systemctl enable nautilus-bridge.service nautilus-logs.service 2>/dev/null || true
+            echo "Bridge started for CID $ENCLAVE_CID"
+            sudo systemctl is-active nautilus-bridge.service

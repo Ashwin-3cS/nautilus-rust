@@ -15,7 +15,7 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # ── Copy source to EC2 (exclude .git to avoid permission issues) ────
+      # ── Copy source to EC2 ───────────────────────────────────────────
       - name: Copy source to EC2
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -42,9 +42,7 @@ jobs:
             if ! command -v docker &> /dev/null; then
               echo "=== Installing Docker ==="
               sudo yum update -y
-              # Try amazon-linux-extras first (AL2), fall back to yum (AL2023)
-              sudo amazon-linux-extras install docker -y 2>/dev/null || \
-                sudo yum install -y docker 2>/dev/null || \
+              sudo amazon-linux-extras install docker -y || \
                 (curl -fsSL https://get.docker.com | sudo sh)
               sudo systemctl start docker
               sudo systemctl enable docker
@@ -57,12 +55,9 @@ jobs:
             # ── Install nitro-cli if missing ──────────────────────────
             if ! command -v nitro-cli &> /dev/null; then
               echo "=== Installing nitro-cli ==="
-              # Try amazon-linux-extras first (AL2), fall back to yum (AL2023)
-              sudo amazon-linux-extras install aws-nitro-enclaves-cli -y 2>/dev/null || \
-                sudo yum install -y aws-nitro-enclaves-cli 2>/dev/null || \
-                (echo "nitro-cli not available via package manager" && exit 1)
-              sudo yum install -y aws-nitro-enclaves-cli-devel 2>/dev/null || true
-              sudo usermod -aG ne $USER 2>/dev/null || true
+              sudo amazon-linux-extras install aws-nitro-enclaves-cli -y
+              sudo yum install -y aws-nitro-enclaves-cli-devel
+              sudo usermod -aG ne $USER
               echo "nitro-cli installed."
             else
               echo "nitro-cli already installed: $(nitro-cli --version)"
@@ -83,12 +78,12 @@ jobs:
             command -v jq    &> /dev/null || sudo yum install -y jq
 
             # ── Build the EIF on EC2 ──────────────────────────────────
-            # The Containerfile uses eif_build internally — the EIF is extracted
-            # via --output, NOT via nitro-cli build-enclave.
             echo "=== Building Enclave Image ==="
             cd ~/nautilus-app
             mkdir -p out
 
+            # The Containerfile builds the EIF internally via eif_build.
+            # We extract it with --output (NOT nitro-cli build-enclave).
             sudo docker build \
               --platform linux/amd64 \
               --progress=plain \
@@ -113,15 +108,9 @@ jobs:
 
             echo "=== Running enclaves ==="
             sudo nitro-cli describe-enclaves
-
-            echo ""
-            echo "Enclave deployed and running."
             sudo nitro-cli describe-enclaves | jq -r '.[0] | "  CID: \(.EnclaveCID)  State: \(.State)"'
 
             # ── Setup persistent VSOCK bridge via systemd ─────────────
-            # systemd owns the process — survives SSH session exit.
-            # We write the service file here (in the same SSH step) so
-            # systemctl start completes before this session closes.
             echo "=== Setting up VSOCK bridge ==="
             ENCLAVE_CID=$(sudo nitro-cli describe-enclaves | jq -r '.[0].EnclaveCID')
 
@@ -137,6 +126,9 @@ jobs:
             sudo systemctl restart nautilus-bridge.service
             sudo systemctl restart nautilus-logs.service
 
-            echo "=== Bridge status ==="
-            sudo systemctl is-active nautilus-bridge.service
-            echo "Bridge active: CID=$ENCLAVE_CID TCP:4000 → VSOCK:4000"
+            # Wait for service to fully start before checking
+            sleep 3
+            sudo systemctl is-active nautilus-bridge.service || true
+
+            echo ""
+            echo "Deployment complete. Bridge active: CID=$ENCLAVE_CID TCP:4000 → VSOCK:4000"

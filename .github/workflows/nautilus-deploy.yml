@@ -41,7 +41,9 @@ jobs:
             if ! command -v docker &> /dev/null; then
               echo "=== Installing Docker ==="
               sudo yum update -y
-              sudo amazon-linux-extras install docker -y || \
+              # Try amazon-linux-extras first (AL2), fall back to yum (AL2023)
+              sudo amazon-linux-extras install docker -y 2>/dev/null || \
+                sudo yum install -y docker 2>/dev/null || \
                 (curl -fsSL https://get.docker.com | sudo sh)
               sudo systemctl start docker
               sudo systemctl enable docker
@@ -54,9 +56,12 @@ jobs:
             # ── Install nitro-cli if missing ──────────────────────────
             if ! command -v nitro-cli &> /dev/null; then
               echo "=== Installing nitro-cli ==="
-              sudo amazon-linux-extras install aws-nitro-enclaves-cli -y
-              sudo yum install -y aws-nitro-enclaves-cli-devel
-              sudo usermod -aG ne $USER
+              # Try amazon-linux-extras first (AL2), fall back to yum (AL2023)
+              sudo amazon-linux-extras install aws-nitro-enclaves-cli -y 2>/dev/null || \
+                sudo yum install -y aws-nitro-enclaves-cli 2>/dev/null || \
+                (echo "nitro-cli not available via package manager" && exit 1)
+              sudo yum install -y aws-nitro-enclaves-cli-devel 2>/dev/null || true
+              sudo usermod -aG ne $USER 2>/dev/null || true
               echo "nitro-cli installed."
             else
               echo "nitro-cli already installed: $(nitro-cli --version)"

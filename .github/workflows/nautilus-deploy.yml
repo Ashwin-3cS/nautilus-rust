@@ -116,17 +116,27 @@ jobs:
 
             # ── Start VSOCK bridge (restart if already running) ───────
             echo "=== Starting VSOCK bridge ==="
-            pkill -f "socat.*VSOCK" || true
+            sudo pkill -f "socat.*VSOCK" 2>/dev/null || true
+            sudo pkill -f "socat.*4000" 2>/dev/null || true
             sleep 1
+
             ENCLAVE_CID=$(sudo nitro-cli describe-enclaves | jq -r '.[0].EnclaveCID')
-            nohup socat TCP-LISTEN:4000,reuseaddr,fork VSOCK-CONNECT:${ENCLAVE_CID}:4000 \
-              > /tmp/vsock-bridge.log 2>&1 &
-            nohup socat VSOCK-LISTEN:5000,reuseaddr,fork \
-              OPEN:/tmp/enclave.log,creat,append \
-              > /dev/null 2>&1 &
+
+            # Write a bridge script and run it fully detached via setsid
+            cat > /tmp/nautilus-bridge.sh << 'BRIDGE'
+            #!/bin/bash
+            CID=$1
+            touch /tmp/enclave.log
+            socat TCP-LISTEN:4000,reuseaddr,fork VSOCK-CONNECT:$CID:4000 &
+            socat VSOCK-LISTEN:5000,fork,reuseaddr OPEN:/tmp/enclave.log,creat,append &
+            wait
+            BRIDGE
+            chmod +x /tmp/nautilus-bridge.sh
+            setsid /tmp/nautilus-bridge.sh "$ENCLAVE_CID" </dev/null >/dev/null 2>&1 &
+            sleep 2
 
             echo ""
             echo "✔ Deployment complete."
-            echo "  Enclave CID: ${ENCLAVE_CID}"
-            echo "  Test: curl http://$(curl -s ifconfig.me):4000/health"
-            echo "  Sign: curl -X POST http://$(curl -s ifconfig.me):4000/sign_name -H 'Content-Type: application/json' -d '{\"name\":\"Ashwin\"}'"
+            echo "  Enclave CID: $ENCLAVE_CID"
+            echo "  Bridge PID: $(pgrep -f nautilus-bridge || echo 'starting...')"
+            echo "  Logs: tail -f /tmp/enclave.log"

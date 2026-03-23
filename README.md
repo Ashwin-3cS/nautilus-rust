@@ -1,4 +1,4 @@
-# nautilus-tee-app
+# nautilus-rust-template
 
 A reference TEE application built on the [Nautilus](https://docs.sui.io/concepts/cryptography/nautilus) protocol by Mysten Labs. Use this as a starting point for building your own verifiable off-chain applications on Sui using AWS Nitro Enclaves.
 

@@ -1,6 +1,7 @@
 use crate::AppState;
 use crate::EnclaveError;
-use axum::{extract::State, Json};
+use axum::extract::{Query, State};
+use axum::Json;
 use nautilus_enclave::EnclaveKeyPair;
 use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
@@ -129,4 +130,29 @@ pub async fn sign_name(
     );
 
     Ok(Json(response))
+}
+
+// ── GET /logs ────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct LogsQueryParams {
+    pub lines: Option<usize>,
+}
+
+#[derive(Serialize)]
+pub struct LogsResponse {
+    pub lines: Vec<String>,
+    pub count: usize,
+}
+
+pub async fn get_logs(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<LogsQueryParams>,
+) -> Result<Json<LogsResponse>, EnclaveError> {
+    let n = params.lines.unwrap_or(100).min(1000);
+    let lines = state.logs.recent(n);
+    Ok(Json(LogsResponse {
+        count: lines.len(),
+        lines,
+    }))
 }

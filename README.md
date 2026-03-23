@@ -57,6 +57,7 @@ This app is intentionally simple. Fork it and replace `sign_name` with your own 
 | `GET` | `/health` | Returns enclave public key + status |
 | `GET` | `/get_attestation` | Returns raw CBOR attestation document (hex) |
 | `POST` | `/sign_name` | Signs a name with an intent-scoped message |
+| `GET` | `/logs` | Returns recent log lines from the in-memory ring buffer |
 
 ### `GET /health`
 ```json
@@ -94,6 +95,29 @@ The attestation contains the enclave's public key in the `public_key` field of t
 ```
 
 The signature covers `bcs(IntentMessage { intent: u8, timestamp_ms: u64, data: SignedName })` — BCS-compatible with the on-chain Move verifier.
+
+### `GET /logs`
+```
+GET /logs?lines=50
+```
+```json
+{
+  "lines": [
+    "2025-03-23T10:00:01Z  INFO sign_server Starting sign-server...",
+    "2025-03-23T10:00:01Z  INFO sign_server sign-server listening on 0.0.0.0:4000",
+    "2025-03-23T10:00:05Z  INFO sign_server::common get_attestation called"
+  ],
+  "count": 3
+}
+```
+
+Returns the most recent `lines` log entries (default: 100, max: 1000) from the in-memory ring buffer. Logs are captured via a custom `tracing` layer that writes to both stdout (for VSOCK streaming) and the buffer simultaneously.
+
+Use from the CLI:
+```bash
+nautilus logs --host <EC2_IP> --template rust -n 50
+nautilus logs --host <EC2_IP> --template rust --follow
+```
 
 ---
 
@@ -135,9 +159,9 @@ nautilus-tee-app/
 ├── src/
 │   ├── sign-server/        # Main TEE application (Axum HTTP server)
 │   │   ├── src/
-│   │   │   ├── main.rs     # Server setup, keypair generation
-│   │   │   ├── lib.rs      # AppState, error types
-│   │   │   └── common.rs   # Route handlers, signing logic
+│   │   │   ├── main.rs     # Server setup, keypair generation, tracing layer
+│   │   │   ├── lib.rs      # AppState, LogBuffer ring buffer, error types
+│   │   │   └── common.rs   # Route handlers, signing logic, /logs endpoint
 │   │   └── Cargo.toml
 │   ├── init/               # Enclave init binary (bootstraps the enclave OS)
 │   ├── aws/                # AWS helper utilities
@@ -164,6 +188,7 @@ Server starts at `http://localhost:4000`. All endpoints work — attestation ret
 Test it:
 ```bash
 curl http://localhost:4000/health
+curl http://localhost:4000/logs?lines=10
 curl -X POST http://localhost:4000/sign_name \
   -H 'Content-Type: application/json' \
   -d '{"name": "Alice"}'
@@ -240,7 +265,7 @@ To build your own TEE app on Nautilus:
 1. Fork this repository
 2. Replace `sign_name` in `src/sign-server/src/common.rs` with your business logic
 3. Add your payload struct and intent scope
-4. Keep `get_attestation` and `health_check` as-is — they're required by the CLI
+4. Keep `get_attestation`, `health_check`, and `get_logs` as-is — they're required by the CLI
 5. Add the corresponding `verify_*` entry function to the Move contract
 6. Deploy with `nautilus-ops`
 
